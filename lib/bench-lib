@@ -1,0 +1,230 @@
+#!/bin/bash
+
+function get_dbsize_csv() {
+    # save load.dbsize/u100.dbszie/r50_u50.dbsize/r90_u10.dbsize to csv
+    output_dir=$1
+    pushd ${output_dir}
+    if [ ! -e csv ]; then mkdir csv; fi
+
+    # get_loadtime
+    for f in `ls *.result`;
+    do
+    ldt_name=csv/${f%.result}.time.csv
+    echo "RunTime(ms)"  > ${ldt_name}
+    ldt_fields="3"
+    cat $f | grep -m 1 'RunTime(ms)' | cut -d , -f ${ldt_fields} >> ${ldt_name}
+    done
+
+    dbs="workload,physical-GB,valid sectors,free sectors"
+
+    echo ${dbs} > csv/dbsz.csv
+
+    for f in `ls *.dbsize`;
+    do
+        wkload=${f%.dbsize}
+        physz=`sed -n '3,3p' ${f} |cut -f 1`
+        sectors=`grep sectors ${f} | grep -e [0-9] | awk '{print $9","$3}'`
+        echo "${wkload},${physz},${sectors}" >> csv/dbsz.csv
+    done
+    popd
+}
+
+function generate_benchinfo() {
+    output_dir=$3
+    ssd_name=$1
+    compname=$2
+    pushd ${output_dir}
+ 
+    rct=`cat ./load | grep '^\<recordcount\>' | cut -d '=' -f2`
+    fdc=`cat ./load | grep '^\<fieldcount\>' | cut -d '=' -f2`
+    fdl=`cat ./load | grep '^\<fieldlength\>' | cut -d '=' -f2`
+
+    echo "aa $output_dir $rct $fdc $fdl"
+    recordsz=`expr $fdc \* $fdl`
+    if [ "${recordsz}" == "512" ]; then
+        rsz=512B
+        dbsize=`expr ${recordsz} \* ${rct} / 1024 / 1024 / 1024`
+    elif [ "${recordsz}" == "2048" ]; then
+        rsz=2K
+        dbsize=`expr 2 \* ${rct} / 1024 / 1024`
+    elif [ "${recordsz}" == "4096" ]; then
+        rsz=4K
+        dbsize=`expr 4 \* ${rct} / 1024 / 1024`
+    #elif [ -z "${fdc}" && -z "${fdl}" ]; then
+    else
+        echo "fldcount=${fdc}filedlen=${fdl}"
+        rsz=1K
+        dbsize=`expr ${rct} / 1024 / 1024`
+    fi
+    size=`sed -n '3p' ./load.dbsize | cut -f1`
+  
+    lfflag=`grep leaf_page_max= ./${compname}.cnf`
+    if [ -z "${lfflag}" ]; then
+        leafsz=32KB
+    else
+        lfsz=`echo ${lfflag} | cut -b 1`  #是否有被屏蔽掉的设置
+        if [ "${lfsz}" == "#" ]; then  ## leaf_page_max被屏蔽了
+            echo "被屏蔽掉了"
+            leafsz=32KB
+        else
+            ##  leaf_page_max没有被屏蔽
+            leafsz=`echo ${lfflag} | cut -d '=' -f2`
+        fi
+    fi
+    echo -e "ssd=${ssd_name} compression=${compname} dbsize=${dbsize}G maxleafsz=lf${leafsz} recordsize=${rsz} load.size=${size}G\n" >> ./bench.info
+    new_name=${output_dir##*/}_${ssd_name%3.2t}_${compname}_${dbsize}G_${rsz}_lf${leafsz}
+    new_file=${output_dir%/*}/${new_name}
+    mv ${output_dir} ${new_file}
+    zip -r ${output_dir%/*}/${new_name}.zip ../${new_name} -x "../${new_name}/*mongodb*.log" "../${new_name}/*.sfx_message"
+    popd
+}
+
+
+function gen_benchinfo_postgres() {
+    output_dir=$3
+    ssd_name=$1
+    scale=$2
+    #sh avg_util_cpu.sh ${output_dir}
+    pushd ${output_dir}
+    fillfactor=ff$4 
+    #dbsize=`expr ${scale} \* 16 / 1024 `
+    dbsize=${scale}
+    echo -e "ssd=${ssd_name} dbsize=${dbsize}G_${fillfactor}" >> ./bench.info
+    new_name=${output_dir##*/}_${ssd_name%3.2t}_${dbsize}G_${fillfactor}
+    new_file=${output_dir%/*}/${new_name}
+    mv ${output_dir} ${new_file}
+    zip -r ${output_dir%/*}/${new_name}.zip ../${new_name} -x "../${new_name}/*log" "../${new_name}/*.sfx_message" "../${new_name}/*LOG" "../${new_name}/*DBLOG"
+    #zip -r ${output_dir%/*}/${new_name}.zip ../${new_name} -x "../${new_name}/*.log" "../${new_name}/*.sfx_message" "../${new_name}/btrace/*"
+    #zip -r btrace.zip btrace
+    #rm -rf btrace
+    popd
+}
+
+function gen_benchinfo_tidb() {
+    output_dir=$3
+    ssd_name=$1
+    scale=$2
+    #sh avg_util_cpu.sh ${output_dir}
+    pushd ${output_dir}
+    dbsize=${scale}
+    echo -e "ssd=${ssd_name} dbsize=${dbsize}G_${fillfactor}" >> ./bench.info
+    new_name=${output_dir##*/}_${ssd_name%3.2t}_${dbsize}G
+    new_file=${output_dir%/*}/${new_name}
+    mv ${output_dir} ${new_file}
+    zip -r ${output_dir%/*}/${new_name}.zip ../${new_name} -x "../${new_name}/*log" "../${new_name}/*.sfx_message" "../${new_name}/*LOG" "../${new_name}/*DBLOG"
+    popd
+}
+
+function get_dbsize_new() {
+    # save load.dbsize/u100.dbszie/r50_u50.dbsize/r90_u10.dbsize to csv
+    output_dir=$1
+    pushd ${output_dir}
+    if [ ! -e csv ]; then mkdir csv; fi
+
+    # get_loadtime
+    for f in `ls *.result`;
+    do
+    ldt_name=csv/${f%.result}.time.csv
+    echo "RunTime(ms)"  > ${ldt_name}
+    ldt_fields="3"
+    cat $f | grep -m 1 'RunTime(ms)' | cut -d , -f ${ldt_fields} >> ${ldt_name}
+    done
+
+    dbs="workload,physical_size (GB),logical_size (GB),comp_ratio,du_BG"
+
+    echo ${dbs} > csv/dbsz.csv
+
+    for f in `ls *.dbsize`;
+    do
+        wkload=${f%.dbsize}
+        szlist=`grep -A1 physical_size ${f} | grep -e [0-9] | awk '{print $2","$3","$4}'`
+        szlist=${szlist%,}
+        du_BG=`grep -B1 physical_size ${f} | grep -e [0-9] | awk '{print $1}'`
+        if [ "${du_BG}" == '' ]; then
+            du_BG=`tail -1 ${f} | awk '{print $1}'`
+            if [ "${szlist}" == '' ]; then
+                szlist="${du_BG},${du_BG},1" 
+            fi
+        fi
+        echo "${wkload},${szlist},${du_BG}" >> csv/dbsz.csv
+    done
+    popd
+}
+
+function get_clickhouse_csv() {
+    output_dir=$1
+    pushd ${output_dir}
+    if [ ! -e csv ]; then mkdir csv; fi
+    query_job=1 
+    ret=''
+    for f in `ls *.result`;
+    do
+        echo "jobs,query.time" > csv/${f}.csv
+        rtime=`tail -n 4 ${f} | head -1`
+        ret="${query_job},${rtime}"
+        echo "${ret}" >> csv/${f}.csv
+    done
+
+    for f in `ls *.iostat`;
+    do
+        io_fields="1,2-14"
+        cat $f | grep -m 1 Device | sed -r 's/\s+/,/g' | cut -d , -f ${io_fields} > csv/$f.csv
+        cat $f | grep -e sfd -e nvme | grep -v p | sed -r 's/\s+/,/g' | cut -d , -f ${io_fields} >> csv/$f.csv
+        cat $f | grep -m 1 Device | sed -r 's/\s+/,/g' | cut -d , -f ${io_fields} > csv/$f.all_part.csv
+        cat $f | grep -e sfd -e nvme | sed -r 's/\s+/,/g' | cut -d , -f ${io_fields} >> csv/$f.all_part.csv
+
+        cpu_usage_fields="2,4,5,7"
+        cat $f | grep -m 1 avg-cpu | sed -r 's/\s+/,/g' | cut -d , -f ${cpu_usage_fields} > csv/$f.cpu.csv
+        cat $f | grep -A 1 avg-cpu | grep -v -e -- -e avg-cpu | sed -r 's/\s+/,/g' | cut -d , -f ${cpu_usage_fields} >> csv/$f.cpu.csv
+    done
+    popd
+}
+
+function gen_benchinfo_clickhouse() {
+    output_dir=$3
+    ssd_name=$1
+    scale=$2
+    #sh avg_util_cpu.sh ${output_dir}
+    pushd ${output_dir}
+    dbsize=${scale}
+    echo -e "ssd=${ssd_name} dbsize=${dbsize}" >> ./bench.info
+    new_name=${output_dir##*/}_${ssd_name%3.2t}_${dbsize}
+    new_file=${output_dir%/*}/${new_name}
+    mv ${output_dir} ${new_file}
+    zip -r ${output_dir%/*}/${new_name}.zip ../${new_name} -x "../${new_name}/*log" "../${new_name}/*.sfx_message" 
+    popd
+}
+
+function get_clickhouse_dbsize() {
+    # save prepare.dbsize to csv
+    output_dir=$1
+    pushd ${output_dir}
+    if [ ! -e csv ]; then mkdir csv; fi
+
+    dbs="workload,physical_size (GB),logical_size (GB),comp_ratio,du_BG"
+
+    echo ${dbs} > csv/dbsz.csv
+
+    for f in `ls *.dbsize`;
+    do
+        wkload=${f%.dbsize}
+        szlist=`grep -A1 physical_size ${f} | grep -e [0-9] | awk '{print $2","$3","$4}'`
+        szlist=${szlist%,}
+        du_BG=`grep -B1 physical_size ${f} | grep -e [0-9] | awk '{print $1}'`
+        if [ "${du_BG}" == '' ]; then
+            du_BG=`tail -1 ${f} | awk '{print $1}'`
+            if [ "${szlist}" == '' ]; then
+                szlist="${du_BG},${du_BG},1" 
+            fi
+        fi
+        echo "${wkload},${szlist},${du_BG}" >> csv/dbsz.csv
+    done
+    popd
+}
+
+function get_vacuum_time() {
+#grep -r -e 'vacuum starts at:' -e 'vacuum ends at:'
+#grep -r -e 'vacuum starts at:' -e 'vacuum ends at:' | cut -d '/' -f2 | awk '{print $1','$4}
+#grep -r -e 'vacuum starts at:' -e 'vacuum ends at:' | sed -r "s/.*ff([0-9]+).*\/(.*).vacuum.*at:(.*)\:/\1,\2,\3/g"
+    echo "aa"
+}

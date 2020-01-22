@@ -1,0 +1,104 @@
+#!/bin/bash
+
+function get_rocksdb_info_dlb0() {
+    output_dir=$1
+    pushd ${output_dir}
+    opname=csv2
+    if [ ! -e ${opname} ]; then mkdir ${opname}; fi
+    
+    for f in `ls *.DBLOG`;
+    do
+        flag=`echo $f | cut -d '.' -f1`
+        #cat ${f} | grep write-amplify | grep default | head -n 1 > default.info 
+        #echo 'cf,read MB/sec,write MB/sec,level,read-write-amplify,write-amplify' > ${f%DBLOG}.rs.definfo
+        echo 'read MB/sec,write MB/sec,level,read-write-amplify,write-amplify,output_compression' > ${flag}.rsdefinfo.csv
+        cat ${f} | grep write-amplify | grep default | awk '{ print $22","$24","$27$36","$37","$45}' >> ${flag}.rsdefinfo.csv
+    done
+    
+    for f in `ls *.cpstat`;
+    do
+        flag=`echo $f | cut -d '.' -f1`
+        rscmpact_stat=${f}
+        sed -n '2,2p' ${rscmpact_stat} | awk '{print $1","$2","$3","$4","$5","$6","$7","$8","$9","$10","$11","$12","$13","$14","$15","$16","$17","$18}' > ${flag}.rockstat.csv 
+        sed -n '4,$p' ${rscmpact_stat} | awk '{print  $1","$2","$3$4","$5","$6","$7","$8","$9","$10","$11","$12","$13","$14","$15","$16","$17","$18","$19}' >> ${flag}.rockstat.csv
+    done
+
+    mv *.csv ${opname}
+    popd
+}
+
+
+function get_rocksdb_info_dlb1() {
+    output_dir=$1
+    pushd ${output_dir}
+    opname=csv2
+    if [ ! -e ${opname} ]; then mkdir ${opname}; fi
+
+    for f in `ls *.DBLOG`;
+    do  
+        flag=`echo $f | cut -d '.' -f1`
+        #cat ${f} | grep write-amplify | grep default | head -n 1 > default.info 
+        echo 'base_level,level_multiplier,read MB/sec,write MB/sec,level,read-write-amplify,write-amplify,output_compression' > ${flag}.rsdefinfo.csv
+        #cat ${f} | grep write-amplify | grep default | awk '{ print $22","$24","$27$36","$37}' >> ${f%DBLOG}.rs.definfo
+        cat ${f} | grep write-amplify | grep default | awk '{ print $13","$16","$32","$34","$37$46","$47","$56}' >> ${flag}.rsdefinfo.csv
+    done
+
+    for f in `ls *.cpstat`;
+    do
+        flag=`echo $f | cut -d '.' -f1`
+        rscmpact_stat=${f}
+        sed -n '2,2p' ${rscmpact_stat} | awk '{print $1","$2","$3","$4","$5","$6","$7","$8","$9","$10","$11","$12","$13","$14","$15","$16","$17","$18}' > ${flag}.rockstat.csv 
+        sed -n '4,$p' ${rscmpact_stat} | awk '{print  $1","$2","$3$4","$5","$6","$7","$8","$9","$10","$11","$12","$13","$14","$15","$16","$17","$18","$19}' >> ${flag}.rockstat.csv
+    done
+
+    #sed -n '2,2p' ${rscmpact_stat} | awk '{print $1","$2","$3","$4","$5","$6","$7","$8","$9","$10","$11","$12","$13","$14","$15","$16","$17","$18}' > rockstat.csv
+    #sed -n '4,$p' ${rscmpact_stat} | awk '{print  $1","$2","$3$4","$5","$6","$7","$8","$9","$10","$11","$12","$13","$14","$15","$16","$17","$18","$19}' >> rockstat.csv
+    mv *.csv ${opname}
+    popd
+}
+
+
+function get_rocksdb_cpu() {
+    output_dir=$1
+    pushd ${output_dir}
+
+    opname=csv2
+    if [ ! -e ${opname} ]; then mkdir ${opname}; fi
+
+    for f in `ls *.cpu`;
+    do  
+        flag=`echo ${f} | cut -d '.' -f1`
+        echo 'tikv_%CPU,rocksdb_%CPU' > ${flag}.cpu.csv
+        #cat ${f}  | grep %Cpu | cut -d ',' -f1 | cut -d ':' -f2 | sed -r "s/([0-9.]+).*/\1,/g" >>${flag}.cpu.csv
+        #us_cpu=`cat ${f}  | grep %Cpu | cut -d ',' -f1 | cut -d ':' -f2 | sed -r "s/([0-9.]+).*/\1,/g"`
+        cat ${f} | tail -n +8| awk '{print $9}' >>${flag}.cpu.csv
+        #cat ${f}  | sed -i '1,7d' >${flag}.cpu.csv
+    done
+    mv *.csv ${opname}
+    popd
+}
+
+
+function get_TiDB_cpu() {
+    output_dir=$1
+    pushd ${output_dir}
+
+    opname=csv_tidb_cpu
+    if [ ! -e ${opname} ]; then mkdir ${opname}; fi
+
+    for f in `ls *.cpu`;
+    do
+        flag=`echo $f | cut -d '.' -f1`
+        echo '%CPU,COMMAND' > ${flag}.tikv.cpu.csv
+        grep -E "tikv-server" ${f} | awk '{print $9","$12}'>> ${flag}.tikv.cpu.csv
+        echo '%CPU,COMMAND' > ${flag}.tidb.cpu.csv
+        grep -E "tidb-server" ${f} | awk '{print $9","$12}'>> ${flag}.tidb.cpu.csv
+        echo '%CPU,COMMAND' > ${flag}.pd.cpu.csv
+        grep -E "pd-server" ${f} | awk '{print $9","$12}'>> ${flag}.pd.cpu.csv
+        echo '%CPU,COMMAND' > ${flag}.sysbench.cpu.csv
+        grep -E "sysbench" ${f} | awk '{print $9","$12}'>> ${flag}.sysbench.cpu.csv
+    done
+    mv *.csv ${opname}
+    popd
+
+}

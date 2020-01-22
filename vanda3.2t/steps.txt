@@ -1,0 +1,4 @@
+SET max_memory_usage = 20000000000, allow_experimental_multiple_joins_emulation = 1;
+
+
+time clickhouse-client < /opt/app/benchmark/clickhouse/dbgen_wk/crline_flat.sql 
